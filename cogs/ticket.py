@@ -30,8 +30,8 @@ class ticket(commands.Cog):
         role = discord.utils.get(res.guild.roles, id=roleID) # Fetch Role By ID
 
         # Add Ticket To Database
-        Q2 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status) VALUES (%s,%s,%s,%s)"
-        data = (selectID.split('panel')[1],results[0][2], res.author.id, "ACTIVE")
+        Q2 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s)"
+        data = (selectID.split('panel')[1],results[0][2], res.author.id, "ACTIVE", res.guild.id)
         cursor.execute(Q2, data)
         db.commit()
         ticketID = cursor.lastrowid
@@ -47,6 +47,11 @@ class ticket(commands.Cog):
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
         await ticketChannel.send(content=f"{res.author.mention}{role.mention}", embed=welcomeTicketEmbed, components=[button])
+
+        # Add Channel ID To Ticket Database
+        Q4 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
+        cursor.execute(Q4)
+        db.commit()
 
     @commands.command()
     async def panel(self, ctx):
