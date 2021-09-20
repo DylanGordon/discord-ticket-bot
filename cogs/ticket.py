@@ -10,6 +10,27 @@ class ticket(commands.Cog):
         self.bot = bot
 
     @Cog.listener()
+    async def on_button_click(self, interaction):
+        if not interaction.custom_id.startswith("closeticket"):
+            pass
+
+        # If User Closes Ticket
+        if interaction.custom_id.startswith("closeticket"):
+            Q1 = "SELECT ticket_status"
+
+
+
+
+        print(interaction.custom_id)
+
+
+
+
+
+
+
+
+    @Cog.listener()
     async def on_select_option(self, res):
         selectID = res.component.custom_id
         selectOption = res.values[0]
