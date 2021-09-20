@@ -16,18 +16,29 @@ class ticket(commands.Cog):
 
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
-            Q1 = "SELECT ticket_status"
+            await interaction.respond(type=6)
+            Q1 = f"SELECT ticket_status,ticket_owner,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('closeticket')[1]}"
+            cursor.execute(Q1)
+            results = cursor.fetchall()
 
+            # If Ticket Is Still Active Close Ticket
+            if results[0][0] == "ACTIVE":
+                ticketOwner = self.bot.get_user(int(results[0][1]))
+                ticketChannel = self.bot.get_channel(int(results[0][2]))
+                ticketclosedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Closed By {interaction.author.mention}')
+                await ticketChannel.send(embed=ticketclosedEmbed)
+                await ticketChannel.set_permissions(ticketOwner, read_messages=False, send_messages=False)
 
+                # Support Team Controls With Button Interactions
+                supportTeamControlsEmbed = discord.Embed(colour=0x2F3136, description='``` Support Team Ticket Controls ```')
+                buttons = [Button(style=ButtonStyle.grey, emoji="🔓", label='Open', custom_id=f"openticket{interaction.custom_id.split('closeticket')[1]}"),Button(style=ButtonStyle.grey, emoji="⛔", label='Delete', custom_id=f"deleteticket{interaction.custom_id.split('closeticket')[1]}"), Button(style=ButtonStyle.grey, emoji="📔", label='Transcript', custom_id=f"transcript{interaction.custom_id.split('closeticket')[1]}"),]
+                await ticketChannel.send(embed=supportTeamControlsEmbed, components=[buttons])
 
-
-        print(interaction.custom_id)
-
-
-
-
-
-
+                # Set Ticket As Closed In Database
+                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('closeticket')[1]}"
+                data = ("CLOSED",)
+                cursor.execute(Q2, data)
+                db.commit()
 
 
     @Cog.listener()
@@ -37,7 +48,7 @@ class ticket(commands.Cog):
 
         # If Select Reaction Is Not A Ticket Panel
         if not selectID.startswith("panel"):
-            pass
+            return
 
         # Fetch Selected Departments Ticket Category ID From Database
         await res.respond(type=6)
@@ -66,11 +77,15 @@ class ticket(commands.Cog):
         ticketOwner = res.author
         overwrites = {res.guild.default_role: discord.PermissionOverwrite(read_messages=False), ticketOwner: discord.PermissionOverwrite(read_messages=True), role: discord.PermissionOverwrite(read_messages=True)}
         ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category, overwrites=overwrites)
-
         welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
-        await ticketChannel.send(content=f"{res.author.mention}{role.mention}", embed=welcomeTicketEmbed, components=[button])
+        orignalMessage = await ticketChannel.send(content=f"{res.author.mention}{role.mention}", embed=welcomeTicketEmbed, components=[button])
+        await orignalMessage.pin()
+        # Delete Message Has Been Pinned Message
+        async for message in ticketChannel.history():
+            if message.type.value == 6:
+                await message.delete()
 
         # Add Channel ID To Ticket Database
         Q4 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
@@ -160,9 +175,7 @@ class ticket(commands.Cog):
 
         # Create At least One Department For Panel
         selectOptions = []
-        print(selectOptions)
         queries = []
-        print(queries)
         async def createDepartment():
             departmentNameEmbed = discord.Embed(colour=0x388E3C, description="Please Enter A **Name** For Your Ticket **Department**")
             await ctx.send(content='Lets Create A Panel Department',embed=departmentNameEmbed, components=[])
@@ -239,7 +252,6 @@ class ticket(commands.Cog):
                 await createDepartment()
             if interaction.custom_id == "denyno":
                 return
-
         await createDepartment()
 
         # Confirms User Wants To Create Panel
@@ -283,7 +295,6 @@ class ticket(commands.Cog):
                 db.reconnect(attempts=5)
                 cursor.execute(query[0], data)
                 db.commit()
-
 
 def setup(bot):
     bot.add_cog(ticket(bot))
