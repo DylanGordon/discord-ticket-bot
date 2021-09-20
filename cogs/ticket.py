@@ -1,11 +1,52 @@
 import discord
+import datetime
 from discord.ext import commands
+from discord.ext.commands import Cog
 from discord_components import *
 from database import db,cursor,shorten
 
 class ticket(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @Cog.listener()
+    async def on_select_option(self, res):
+        selectID = res.component.custom_id
+        selectOption = res.values[0]
+
+        # If Select Reaction Is Not A Ticket Panel
+        if not selectID.startswith("panel"):
+            pass
+
+        # Fetch Selected Departments Ticket Category ID From Database
+        await res.respond(type=6)
+        Q1 = "SELECT department_category_id, department_role_id, id FROM panel_departments WHERE panel_id = %s AND department_name = %s"
+        data = (selectID.split('panel')[1], selectOption)
+        cursor.execute(Q1, data)
+        results = cursor.fetchall()
+        categoryID = int(results[0][0])
+        roleID = int(results[0][1])
+        category = discord.utils.get(res.guild.categories, id=categoryID) # Fetch Category By ID
+        role = discord.utils.get(res.guild.roles, id=roleID) # Fetch Role By ID
+
+        # Add Ticket To Database
+        Q2 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status) VALUES (%s,%s,%s,%s)"
+        data = (selectID.split('panel')[1],results[0][2], res.author.id, "ACTIVE")
+        cursor.execute(Q2, data)
+        db.commit()
+        ticketID = cursor.lastrowid
+
+        # Get Correct Ticket Number Based On Amount Of Tickets For Selected Department
+        Q3 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
+        cursor.execute(Q3)
+        results = cursor.fetchall()
+
+        # Create Ticket In Selected Department Category
+        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category)
+        welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
+        welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
+        button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
+        await ticketChannel.send(content=f"{res.author.mention}{role.mention}", embed=welcomeTicketEmbed, components=[button])
 
     @commands.command()
     async def panel(self, ctx):
