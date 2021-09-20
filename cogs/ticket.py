@@ -42,7 +42,10 @@ class ticket(commands.Cog):
         results = cursor.fetchall()
 
         # Create Ticket In Selected Department Category
-        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category)
+        ticketOwner = res.author
+        overwrites = {res.guild.default_role: discord.PermissionOverwrite(read_messages=False), ticketOwner: discord.PermissionOverwrite(read_messages=True), role: discord.PermissionOverwrite(read_messages=True)}
+        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category, overwrites=overwrites)
+
         welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
