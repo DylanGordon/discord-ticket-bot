@@ -11,9 +11,6 @@ class ticket(commands.Cog):
 
     @Cog.listener()
     async def on_button_click(self, interaction):
-        if not interaction.custom_id.startswith("closeticket"):
-            pass
-
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
             await interaction.respond(type=6)
@@ -37,6 +34,27 @@ class ticket(commands.Cog):
                 # Set Ticket As Closed In Database
                 Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('closeticket')[1]}"
                 data = ("CLOSED",)
+                cursor.execute(Q2, data)
+                db.commit()
+
+        # If User Opens Back Up Ticket
+        if interaction.custom_id.startswith("openticket"):
+            await interaction.respond(type=6)
+            Q1 = f"SELECT ticket_status,ticket_owner,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('openticket')[1]}"
+            cursor.execute(Q1)
+            results = cursor.fetchall()
+
+            # If Ticket Is Closed Re Open Ticket
+            if results[0][0] == "CLOSED":
+                ticketOwner = self.bot.get_user(int(results[0][1]))
+                ticketChannel = self.bot.get_channel(int(results[0][2]))
+                ticketReopenedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Reopened By {interaction.author.mention}')
+                await ticketChannel.send(embed=ticketReopenedEmbed)
+                await ticketChannel.set_permissions(ticketOwner, read_messages=True, send_messages=True)
+
+                # Set Ticket As ACTIVE In Database
+                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('openticket')[1]}"
+                data = ("ACTIVE",)
                 cursor.execute(Q2, data)
                 db.commit()
 

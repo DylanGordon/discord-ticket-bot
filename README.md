@@ -6,4 +6,4 @@ Ticket bot for Discord written in Python
 2. Panel Customization ✔️
 3. Ability To Edit And Delete Created Panels 🚫
 4. Ticket Logging With Transcripts 🚫
-5. Ability To Re-Open Tickets After Being Closed 🚫
+5. Ability To Re-Open Tickets After Being Closed ✔️
