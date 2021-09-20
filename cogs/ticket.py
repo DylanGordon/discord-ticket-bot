@@ -10,6 +10,27 @@ class ticket(commands.Cog):
         self.bot = bot
 
     @Cog.listener()
+    async def on_button_click(self, interaction):
+        if not interaction.custom_id.startswith("closeticket"):
+            pass
+
+        # If User Closes Ticket
+        if interaction.custom_id.startswith("closeticket"):
+            Q1 = "SELECT ticket_status"
+
+
+
+
+        print(interaction.custom_id)
+
+
+
+
+
+
+
+
+    @Cog.listener()
     async def on_select_option(self, res):
         selectID = res.component.custom_id
         selectOption = res.values[0]
@@ -42,7 +63,10 @@ class ticket(commands.Cog):
         results = cursor.fetchall()
 
         # Create Ticket In Selected Department Category
-        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category)
+        ticketOwner = res.author
+        overwrites = {res.guild.default_role: discord.PermissionOverwrite(read_messages=False), ticketOwner: discord.PermissionOverwrite(read_messages=True), role: discord.PermissionOverwrite(read_messages=True)}
+        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category, overwrites=overwrites)
+
         welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
