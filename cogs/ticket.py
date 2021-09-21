@@ -96,11 +96,7 @@ class ticket(commands.Cog):
         if not selectID.startswith("panel"):
             return
 
-        # Make Interaction Response
-        firstResMessage = await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
-
         # Fetch Selected Departments Ticket Category ID From Database
-        await res.respond(type=6)
         Q1 = "SELECT department_category_id, department_role_id, id FROM panel_departments WHERE panel_id = %s AND department_name = %s"
         data = (selectID.split('panel')[1], selectOption)
         cursor.execute(Q1, data)
@@ -110,16 +106,27 @@ class ticket(commands.Cog):
         category = discord.utils.get(res.guild.categories, id=categoryID) # Fetch Category By ID
         role = discord.utils.get(res.guild.roles, id=roleID) # Fetch Role By ID
 
+        # If User Has More Than One Ticket Open On The Same Department
+        Q2 = f"SELECT * from tickets WHERE department_id = {results[0][2]} AND ticket_owner = {res.author.id} AND ticket_status = 'ACTIVE'"
+        cursor.execute(Q2)
+        tickets = cursor.fetchall()
+        if len(tickets) >= 1:
+            await res.send(content="**Ticket Limit Reached**, You already have 1 ticket opened for the selected department")
+            return
+
+        # Make Interaction Response
+        firstResMessage = await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
+
         # Add Ticket To Database
-        Q2 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s)"
+        Q3 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s)"
         data = (selectID.split('panel')[1],results[0][2], res.author.id, "ACTIVE", res.guild.id)
-        cursor.execute(Q2, data)
+        cursor.execute(Q3, data)
         db.commit()
         ticketID = cursor.lastrowid
 
         # Get Correct Ticket Number Based On Amount Of Tickets For Selected Department
-        Q3 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
-        cursor.execute(Q3)
+        Q4 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
+        cursor.execute(Q4)
         results = cursor.fetchall()
 
         # Create Ticket In Selected Department Category
@@ -140,8 +147,8 @@ class ticket(commands.Cog):
         await res.edit_origin(content=f'Ticket Created <#{ticketChannel.id}>')
 
         # Add Channel ID To Ticket Database
-        Q4 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
-        cursor.execute(Q4)
+        Q5 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
+        cursor.execute(Q5)
         db.commit()
 
     @commands.command()
