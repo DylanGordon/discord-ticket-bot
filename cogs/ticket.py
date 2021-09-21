@@ -39,6 +39,11 @@ class ticket(commands.Cog):
                 buttons = [Button(style=ButtonStyle.grey, emoji="🔓", label='Open', custom_id=f"openticket{interaction.custom_id.split('closeticket')[1]}"),Button(style=ButtonStyle.grey, emoji="⛔", label='Delete', custom_id=f"deleteticket{interaction.custom_id.split('closeticket')[1]}"), Button(style=ButtonStyle.grey, emoji="📔", label='Transcript', custom_id=f"transcript{interaction.custom_id.split('closeticket')[1]}"),]
                 await ticketChannel.send(embed=supportTeamControlsEmbed, components=[buttons])
 
+                # If Ticket Owner Does Not Close Ticket DM Ticket Owner
+                if int(interaction.author.id) != int(results[0][1]):
+                    ticketReopenedEmbed = discord.Embed(colour=0x388E3C, title='Ticket Closed',description=f'Your ticket in {interaction.guild.name} has been closed by {interaction.author.mention}',timestamp=datetime.datetime.utcnow())
+                    await ticketOwner.send(embed=ticketReopenedEmbed)
+
                 # Set Ticket As Closed In Database
                 Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('closeticket')[1]}"
                 data = ("CLOSED",)
