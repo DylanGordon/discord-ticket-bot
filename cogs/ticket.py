@@ -58,6 +58,26 @@ class ticket(commands.Cog):
                 cursor.execute(Q2, data)
                 db.commit()
 
+        # If User Deletes Ticket
+        if interaction.custom_id.startswith("deleteticket"):
+            await interaction.respond(type=6)
+            Q1 = f"SELECT ticket_status,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
+            cursor.execute(Q1)
+            results = cursor.fetchall()
+
+            # If Ticket Is Closed Delete Ticket
+            if results[0][0] == "CLOSED":
+                ticketChannel = self.bot.get_channel(int(results[0][1]))
+                deleteingTicketEmbed = discord.Embed(colour=0xEF5250, description='<a:emojistorage1loading:824542310028017685> Ticket Will Be Deleted Momentarily <a:emojistorage1loading:824542310028017685>')
+                await ticketChannel.send(embed=deleteingTicketEmbed)
+                await ticketChannel.delete()
+
+                # Set Ticket As DELETED In Database
+                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
+                data = ("DELETED",)
+                cursor.execute(Q2, data)
+                db.commit()
+
 
     @Cog.listener()
     async def on_select_option(self, res):
