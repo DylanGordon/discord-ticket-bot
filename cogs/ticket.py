@@ -341,8 +341,8 @@ class ticket(commands.Cog):
 
         # if User Selects No
         if interaction.custom_id == "denyno":
-            deletedPanelEmbed = discord.Embed(colour=0x388E3C,description='**Disgarded** Panel!')
-            await createPanelMessage.edit(deletedPanelEmbed, components=[])
+            deletedPanelEmbed = discord.Embed(colour=0x00F0C5,title='<a:verifiedcheck:870959062240591923> **Disgarded** Panel! <a:verifiedcheck:870959062240591923>')
+            await createPanelMessage.edit(embed=deletedPanelEmbed, components=[])
             return
         if interaction.custom_id == "checkyes":
             # Insert Panel Into Database
