@@ -11,13 +11,21 @@ class ticket(commands.Cog):
 
     @Cog.listener()
     async def on_button_click(self, interaction):
+        # If Button Click Not For Tickets Ignore Interaction
+        counter = 0
+        buttonTypes = ["closeticket","openticket","deleteticket","transcript"]
+        for button in buttonTypes:
+            if interaction.custom_id.startswith(button):
+                counter += 1
+        if counter == 0:
+            return
+
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
             await interaction.respond(type=6)
             Q1 = f"SELECT ticket_status,ticket_owner,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('closeticket')[1]}"
             cursor.execute(Q1)
             results = cursor.fetchall()
-
             # If Ticket Is Still Active Close Ticket
             if results[0][0] == "ACTIVE":
                 ticketOwner = self.bot.get_user(int(results[0][1]))
@@ -36,7 +44,6 @@ class ticket(commands.Cog):
                 data = ("CLOSED",)
                 cursor.execute(Q2, data)
                 db.commit()
-
         # If User Opens Back Up Ticket
         if interaction.custom_id.startswith("openticket"):
             await interaction.respond(type=6)
@@ -57,7 +64,6 @@ class ticket(commands.Cog):
                 data = ("ACTIVE",)
                 cursor.execute(Q2, data)
                 db.commit()
-
         # If User Deletes Ticket
         if interaction.custom_id.startswith("deleteticket"):
             await interaction.respond(type=6)
@@ -77,7 +83,9 @@ class ticket(commands.Cog):
                 data = ("DELETED",)
                 cursor.execute(Q2, data)
                 db.commit()
-
+        # If User Requests Transcript Of Ticket
+        if interaction.custom_id.startswith("transcript"):
+            await interaction.send("Coming Soon")
 
     @Cog.listener()
     async def on_select_option(self, res):
@@ -87,6 +95,9 @@ class ticket(commands.Cog):
         # If Select Reaction Is Not A Ticket Panel
         if not selectID.startswith("panel"):
             return
+
+        # Make Interaction Response
+        firstResMessage = await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
 
         # Fetch Selected Departments Ticket Category ID From Database
         await res.respond(type=6)
@@ -124,6 +135,9 @@ class ticket(commands.Cog):
         async for message in ticketChannel.history():
             if message.type.value == 6:
                 await message.delete()
+
+        # Make Final Interaction Message
+        await res.edit_origin(content=f'Ticket Created <#{ticketChannel.id}>')
 
         # Add Channel ID To Ticket Database
         Q4 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
