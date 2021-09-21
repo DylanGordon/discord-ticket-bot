@@ -105,6 +105,14 @@ class ticket(commands.Cog):
         if not selectID.startswith("panel"):
             return
 
+        # If Select Reaction Is From A Panel Deleted In The Database
+        Q = "SELECT * FROM ticket_panels WHERE panel_id = %s"
+        data = (selectID.split('panel')[1], )
+        cursor.execute(Q, data)
+        panels = cursor.fetchall()
+        if panels == []:
+            return
+
         # Fetch Selected Departments Ticket Category ID From Database
         Q1 = "SELECT department_category_id, department_role_id, id FROM panel_departments WHERE panel_id = %s AND department_name = %s"
         data = (selectID.split('panel')[1], selectOption)
