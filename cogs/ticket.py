@@ -196,6 +196,52 @@ class ticket(commands.Cog):
         cursor.execute(Q5)
         db.commit()
 
+    # Command To Delete Active Ticket Panels
+    @commands.command()
+    async def deletepanel(self, ctx):
+        db.reconnect(attempts=5)
+        Q1 = f"SELECT * FROM ticket_panels WHERE guild_id = {ctx.guild.id}"
+        cursor.execute(Q1)
+        panels = cursor.fetchall()
+
+        # If No Active Panels In Guild
+        if panels == []:
+            await ctx.message.delete()
+            noActivePanelEmbed = discord.Embed(colour=0xCD5C5C, description='❌ No **Active** Panels To **Delete**')
+            await ctx.send(embed=noActivePanelEmbed, delete_after=10)
+            return
+
+        # For Every Panel Make A Selection Menu
+        selectOptions = []
+        for panel in list(panels):
+            selectOptions.append(SelectOption(label=str(panel[1], 'utf-8'), value=panel[0]))
+
+        deletePanelEmbed = discord.Embed(colour=0x388E3C,description='#️⃣ Please Select A **Panel** To __**Delete**__')
+        components = Select(placeholder="Please Select An Active Panel To Delete", options=selectOptions)
+        orignalMessage = await ctx.send(embed=deletePanelEmbed, components=[components])
+
+        # Wait For Interaction Response
+        interaction = await self.bot.wait_for("select_option", timeout=30)
+        await interaction.respond(type=6)
+
+        # Delete Panel Message And Panel From Database
+        Q2 = f"SELECT message_id,channel_id FROM ticket_panels WHERE panel_id = {interaction.values[0]}"
+        cursor.execute(Q2)
+        results = cursor.fetchall()
+        ticketChannel = self.bot.get_channel(int(results[0][1]))
+        panelMessage = await ticketChannel.fetch_message(int(results[0][0]))
+        await panelMessage.delete()
+        Q3 = f"DELETE FROM ticket_panels WHERE panel_id = {interaction.values[0]}"
+        cursor.execute(Q3)
+        db.commit()
+        Q4 = f"DELETE FROM panel_departments WHERE panel_id = {interaction.values[0]}"
+        cursor.execute(Q4)
+        db.commit()
+        deletedPanelEmbed = discord.Embed(colour=0x388E3C, description="<a:verifiedcheck:870959062240591923> Panel Deleted <a:verifiedcheck:870959062240591923>")
+        await orignalMessage.edit(embed=deletedPanelEmbed, components=[], delete_after=10)
+        await ctx.message.delete()
+
+    # Command To Create Ticket Panels With A Selection Menu
     @commands.command()
     async def panel(self, ctx):
         # Get Name Of Panel
