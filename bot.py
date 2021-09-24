@@ -1,5 +1,6 @@
 import discord
 import os
+import chat_exporter
 from discord_components import ComponentsBot
 from dotenv import load_dotenv
 
@@ -15,6 +16,7 @@ bot.remove_command('help')
 @bot.event
 async def on_ready():
     print('Ticket Bot Online!')
+    chat_exporter.init_exporter(bot)
 
 # Loads ALl Py Files On Startup.
 for file in os.listdir('./cogs'):

@@ -1,5 +1,8 @@
 import discord
 import datetime
+import chat_exporter
+import io
+import os
 from discord.ext import commands
 from discord.ext.commands import Cog
 from discord_components import *
@@ -23,8 +26,10 @@ class ticket(commands.Cog):
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
             await interaction.respond(type=6)
-            Q1 = f"SELECT ticket_status,ticket_owner,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('closeticket')[1]}"
-            cursor.execute(Q1)
+            db.reconnect(attempts=5)
+            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number FROM tickets WHERE id = %s"
+            data = (interaction.custom_id.split('closeticket')[1], )
+            cursor.execute(Q1, data)
             results = cursor.fetchall()
             # If Ticket Is Still Active Close Ticket
             if results[0][0] == "ACTIVE":
@@ -45,15 +50,17 @@ class ticket(commands.Cog):
                     await ticketOwner.send(embed=ticketClosedEmbed)
 
                 # Set Ticket As Closed In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('closeticket')[1]}"
-                data = ("CLOSED",)
+                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = %s"
+                data = ("CLOSED", interaction.custom_id.split('closeticket')[1], )
                 cursor.execute(Q2, data)
                 db.commit()
         # If User Opens Back Up Ticket
         if interaction.custom_id.startswith("openticket"):
             await interaction.respond(type=6)
-            Q1 = f"SELECT ticket_status,ticket_owner,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('openticket')[1]}"
-            cursor.execute(Q1)
+            db.reconnect(attempts=5)
+            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number FROM tickets WHERE id = %s"
+            data = (interaction.custom_id.split('openticket')[1], )
+            cursor.execute(Q1,data)
             results = cursor.fetchall()
 
             # If Ticket Is Closed Re Open Ticket
@@ -76,8 +83,10 @@ class ticket(commands.Cog):
         # If User Deletes Ticket
         if interaction.custom_id.startswith("deleteticket"):
             await interaction.respond(type=6)
-            Q1 = f"SELECT ticket_status,channel_id  FROM tickets WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
-            cursor.execute(Q1)
+            db.reconnect(attempts=5)
+            Q1 = f"SELECT ticket_status,channel_id  FROM tickets WHERE id = %s"
+            data = (interaction.custom_id.split('deleteticket')[1], )
+            cursor.execute(Q1, data)
             results = cursor.fetchall()
 
             # If Ticket Is Closed Delete Ticket
@@ -94,7 +103,14 @@ class ticket(commands.Cog):
                 db.commit()
         # If User Requests Transcript Of Ticket
         if interaction.custom_id.startswith("transcript"):
-            await interaction.send("Coming Soon")
+            await interaction.respond(type=6)
+            transcript = await chat_exporter.export(interaction.channel, set_timezone='EST')
+            transcript = "\n".join(transcript.split("\n")[8:])
+            transcriptFile = discord.File(io.BytesIO(transcript.encode()),filename=f"transcript-{interaction.channel.name}.html")
+            transcriptChannel = self.bot.get_channel(int(os.getenv("transcriptchannelid")))
+            message = await transcriptChannel.send(content=f"Transcript Saved In {interaction.channel.name}", file=transcriptFile)
+            transcriptEmbed = discord.Embed(colour=0x388E3C,title="Transcript Saved!", description=f"Click [here]({message.attachments[0].url}) to download your transcript!", timestamp=datetime.datetime.utcnow())
+            await interaction.channel.send(embed=transcriptEmbed)
 
     @Cog.listener()
     async def on_select_option(self, res):
@@ -132,29 +148,32 @@ class ticket(commands.Cog):
             return
 
         # Make Interaction Response
-        firstResMessage = await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
-
-        # Add Ticket To Database
-        Q3 = "INSERT INTO tickets (panel_id, department_id, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s)"
-        data = (selectID.split('panel')[1],results[0][2], res.author.id, "ACTIVE", res.guild.id)
-        cursor.execute(Q3, data)
-        db.commit()
-        ticketID = cursor.lastrowid
+        await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
 
         # Get Correct Ticket Number Based On Amount Of Tickets For Selected Department
-        Q4 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
-        cursor.execute(Q4)
-        results = cursor.fetchall()
+        Q3 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
+        cursor.execute(Q3)
+        tickets = cursor.fetchall()
+        if len(tickets) == 0:
+            tickets.append(1)
+
+        # Add Ticket To Database
+        Q4 = "INSERT INTO tickets (panel_id, department_id, department_ticket_number, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s,%s)"
+        data = (selectID.split('panel')[1], results[0][2],len(tickets) , res.author.id, "ACTIVE", res.guild.id)
+        cursor.execute(Q4, data)
+        db.commit()
+        ticketID = cursor.lastrowid
 
         # Create Ticket In Selected Department Category
         ticketOwner = res.author
         overwrites = {res.guild.default_role: discord.PermissionOverwrite(read_messages=False), ticketOwner: discord.PermissionOverwrite(read_messages=True), role: discord.PermissionOverwrite(read_messages=True)}
-        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(results)}', category=category, overwrites=overwrites)
+        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(tickets)}', category=category, overwrites=overwrites)
         welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
         orignalMessage = await ticketChannel.send(content=f"{res.author.mention}{role.mention}", embed=welcomeTicketEmbed, components=[button])
         await orignalMessage.pin()
+
         # Delete Message Has Been Pinned Message
         async for message in ticketChannel.history():
             if message.type.value == 6:
