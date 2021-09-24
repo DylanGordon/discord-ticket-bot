@@ -20,7 +20,16 @@ class ticket(commands.Cog):
         for button in buttonTypes:
             if interaction.custom_id.startswith(button):
                 counter += 1
+                buttonType = button
         if counter == 0:
+            return
+
+        # If Button Click Is From A Ticket That Is Not In Database
+        Q = "SELECT * FROM tickets WHERE id = %s"
+        data = (interaction.custom_id.split(buttonType)[1],)
+        cursor.execute(Q,data)
+        results = cursor.fetchall()
+        if results == []:
             return
 
         # If User Closes Ticket
