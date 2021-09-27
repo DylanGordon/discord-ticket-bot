@@ -159,6 +159,13 @@ class ticket(commands.Cog):
         # Make Interaction Response
         await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
 
+        # Add Ticket To Database
+        Q4 = "INSERT INTO tickets (panel_id, department_id, department_ticket_number, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s,%s)"
+        data = (selectID.split('panel')[1], results[0][2],len(tickets) , res.author.id, "ACTIVE", res.guild.id)
+        cursor.execute(Q4, data)
+        db.commit()
+        ticketID = cursor.lastrowid
+
         # Get Correct Ticket Number Based On Amount Of Tickets For Selected Department
         Q3 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
         cursor.execute(Q3)
@@ -166,12 +173,11 @@ class ticket(commands.Cog):
         if len(tickets) == 0:
             tickets.append(1)
 
-        # Add Ticket To Database
-        Q4 = "INSERT INTO tickets (panel_id, department_id, department_ticket_number, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s,%s)"
-        data = (selectID.split('panel')[1], results[0][2],len(tickets) , res.author.id, "ACTIVE", res.guild.id)
-        cursor.execute(Q4, data)
+        # Set Correct Ticket Number
+        Q5 = "UPDATE tickets SET department_ticket_number = %s WHERE id = %s"
+        data = (len(tickets), cursor.lastrowid)
+        cursor.execute(Q5, data)
         db.commit()
-        ticketID = cursor.lastrowid
 
         # Create Ticket In Selected Department Category
         ticketOwner = res.author
@@ -192,8 +198,8 @@ class ticket(commands.Cog):
         await res.edit_origin(content=f'Ticket Created <#{ticketChannel.id}>')
 
         # Add Channel ID To Ticket Database
-        Q5 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
-        cursor.execute(Q5)
+        Q6 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
+        cursor.execute(Q6)
         db.commit()
 
     # Command To Delete Active Ticket Panels
