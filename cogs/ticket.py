@@ -54,23 +54,23 @@ class ticket(commands.Cog):
                 # Support Team Controls With Button Interactions
                 supportTeamControlsEmbed = discord.Embed(colour=0x2F3136, description='``` Support Team Ticket Controls ```')
                 buttons = [Button(style=ButtonStyle.grey, emoji="🔓", label='Open', custom_id=f"openticket{interaction.custom_id.split('closeticket')[1]}"),Button(style=ButtonStyle.grey, emoji="⛔", label='Delete', custom_id=f"deleteticket{interaction.custom_id.split('closeticket')[1]}"), Button(style=ButtonStyle.grey, emoji="📔", label='Transcript', custom_id=f"transcript{interaction.custom_id.split('closeticket')[1]}"),]
-                await ticketChannel.send(embed=supportTeamControlsEmbed, components=[buttons])
+                supportPanel = await ticketChannel.send(embed=supportTeamControlsEmbed, components=[buttons])
 
                 # If Ticket Owner Does Not Close Ticket DM Ticket Owner
                 if int(interaction.author.id) != int(results[0][1]):
                     ticketClosedEmbed = discord.Embed(colour=0x388E3C, title='Ticket Closed',description=f'Your ticket in {interaction.guild.name} has been closed by {interaction.author.mention}',timestamp=datetime.datetime.utcnow())
                     await ticketOwner.send(embed=ticketClosedEmbed)
 
-                # Set Ticket As Closed In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = %s"
-                data = ("CLOSED", interaction.custom_id.split('closeticket')[1], )
+                # Set Ticket As Closed In Database & Set Support Panel Message ID
+                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = %s"
+                data = ("CLOSED",supportPanel.id , interaction.custom_id.split('closeticket')[1], )
                 cursor.execute(Q2, data)
                 db.commit()
         # If User Opens Back Up Ticket
         if interaction.custom_id.startswith("openticket"):
             await interaction.respond(type=6)
             db.reconnect(attempts=5)
-            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number FROM tickets WHERE id = %s"
+            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number,support_panel_message_id FROM tickets WHERE id = %s"
             data = (interaction.custom_id.split('openticket')[1], )
             cursor.execute(Q1,data)
             results = cursor.fetchall()
@@ -79,6 +79,8 @@ class ticket(commands.Cog):
             if results[0][0] == "CLOSED":
                 ticketOwner = self.bot.get_user(int(results[0][1]))
                 ticketChannel = self.bot.get_channel(int(results[0][2]))
+                supportPanel = await ticketChannel.fetch_message(int(results[0][4]))
+                await supportPanel.delete()
                 ticketReopenedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Reopened By {interaction.author.mention}')
                 await ticketChannel.set_permissions(ticketOwner, read_messages=True, send_messages=True)
                 ratelimit = await editChannelNameByStatus(ticketChannel, 'ticket', results[0][3])
@@ -92,8 +94,8 @@ class ticket(commands.Cog):
                 await ticketOwner.send(embed=ticketReopenedEmbed)
 
                 # Set Ticket As ACTIVE In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('openticket')[1]}"
-                data = ("ACTIVE",)
+                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = {interaction.custom_id.split('openticket')[1]}"
+                data = ("ACTIVE","NULL")
                 cursor.execute(Q2, data)
                 db.commit()
         # If User Deletes Ticket
@@ -113,8 +115,8 @@ class ticket(commands.Cog):
                 await ticketChannel.delete()
 
                 # Set Ticket As DELETED In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
-                data = ("DELETED",)
+                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
+                data = ("DELETED","NULL",)
                 cursor.execute(Q2, data)
                 db.commit()
 
