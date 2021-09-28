@@ -117,6 +117,13 @@ class ticket(commands.Cog):
                 data = ("DELETED",)
                 cursor.execute(Q2, data)
                 db.commit()
+
+                # Delete All Channel Edit Logs In Database
+                Q3 = 'DELETE FROM entries WHERE channel_id = %s'
+                data = (int(results[0][1]), )
+                cursor.execute(Q3, data)
+                db.commit()
+
         # If User Requests Transcript Of Ticket
         if interaction.custom_id.startswith("transcript"):
             await interaction.respond(type=6)
