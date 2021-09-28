@@ -6,7 +6,7 @@ import os
 from discord.ext import commands
 from discord.ext.commands import Cog
 from discord_components import *
-from database import db,cursor,shorten
+from database import db,cursor,shorten,editChannelNameByStatus
 
 class ticket(commands.Cog):
     def __init__(self, bot):
@@ -31,7 +31,6 @@ class ticket(commands.Cog):
         results = cursor.fetchall()
         if results == []:
             return
-
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
             await interaction.respond(type=6)
@@ -45,8 +44,12 @@ class ticket(commands.Cog):
                 ticketOwner = self.bot.get_user(int(results[0][1]))
                 ticketChannel = self.bot.get_channel(int(results[0][2]))
                 ticketclosedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Closed By {interaction.author.mention}')
-                await ticketChannel.send(embed=ticketclosedEmbed)
                 await ticketChannel.set_permissions(ticketOwner, read_messages=False, send_messages=False)
+                ratelimit = await editChannelNameByStatus(ticketChannel,'closed',results[0][3])
+                if ratelimit == None:
+                    await ticketChannel.send(embed=ticketclosedEmbed)
+                else:
+                    await ticketChannel.send(content=f"Channel renamed too quickly, Timeout: {ratelimit} - Skipping",embed=ticketclosedEmbed)
 
                 # Support Team Controls With Button Interactions
                 supportTeamControlsEmbed = discord.Embed(colour=0x2F3136, description='``` Support Team Ticket Controls ```')
@@ -77,8 +80,12 @@ class ticket(commands.Cog):
                 ticketOwner = self.bot.get_user(int(results[0][1]))
                 ticketChannel = self.bot.get_channel(int(results[0][2]))
                 ticketReopenedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Reopened By {interaction.author.mention}')
-                await ticketChannel.send(embed=ticketReopenedEmbed)
                 await ticketChannel.set_permissions(ticketOwner, read_messages=True, send_messages=True)
+                ratelimit = await editChannelNameByStatus(ticketChannel, 'ticket', results[0][3])
+                if ratelimit == None:
+                    await ticketChannel.send(embed=ticketReopenedEmbed)
+                else:
+                    await ticketChannel.send(content=f"Channel renamed too quickly, Timeout: {ratelimit} - Skipping",embed=ticketReopenedEmbed)
 
                 # Send Ticket Owner Message Letting Them Know The Ticket Has Been Reopened
                 ticketReopenedEmbed = discord.Embed(colour=0x388E3C, title='Ticket Reopened',description=f'Your ticket in {interaction.guild.name} has been reopened by {interaction.author.mention} \n Click [here](https://discord.com/channels/{interaction.guild.id}/{ticketChannel.id}) to view your ticket',timestamp=datetime.datetime.utcnow())
