@@ -290,12 +290,6 @@ class ticket(commands.Cog):
             await ctx.send(embed=invalidColorEmbed)
             return
 
-        # Get Panel Emoji
-        getPanelEmojiEmbed = discord.Embed(colour=0x388E3C, description='Please Enter The **Panel** __**Emoji**__')
-        await ctx.send(embed=getPanelEmojiEmbed)
-        msg = await self.bot.wait_for('message', timeout=60, check=lambda message: message.author == ctx.author)
-        panelEmoji = msg.content
-
         # Gets Panel Channel
         textChannelList = []
         selectOptions = []
@@ -442,13 +436,13 @@ class ticket(commands.Cog):
             return
         if interaction.custom_id == "checkyes":
             # Insert Panel Into Database
-            Q1 = f"INSERT INTO ticket_panels (panel_name, panel_description, panel_color, panel_emoji, panel_image, guild_id, channel_id) VALUES (%s,%s,%s,%s,%s,%s,%s)"
-            data = (panelName, panelDescription, panelColorCode, panelEmoji, panelImageURL, ctx.guild.id, panelChannelID)
+            Q1 = f"INSERT INTO ticket_panels (panel_name, panel_description, panel_color, panel_image, guild_id, channel_id) VALUES (%s,%s,%s,%s,%s,%s)"
+            data = (panelName, panelDescription, panelColorCode, panelImageURL, ctx.guild.id, panelChannelID)
             cursor.execute(Q1, data)
             db.commit()
 
             # Send Out Ticket Panel
-            finalPanelEmbed = discord.Embed(colour=0x2F3136, title=panelName,description=f'{panelEmoji}{panelDescription}')
+            finalPanelEmbed = discord.Embed(colour=0x2F3136, title=panelName,description=f'{panelDescription}')
             components = Select(placeholder="Please Select A Ticket Department!", options=selectOptions, custom_id=f'panel{cursor.lastrowid}')
             panel = await panelChannel.send(embed=finalPanelEmbed, components=[components])
             panelID = cursor.lastrowid
@@ -463,7 +457,6 @@ class ticket(commands.Cog):
                 data = list(query[1])
                 data.insert(0, panelID)
                 data = tuple(data)
-
                 db.reconnect(attempts=5)
                 cursor.execute(query[0], data)
                 db.commit()
