@@ -6,7 +6,60 @@ import os
 from discord.ext import commands
 from discord.ext.commands import Cog
 from discord_components import *
-from database import db,cursor,shorten,editChannelNameByStatus
+from bson import ObjectId
+from database import mongo
+from datetime import timedelta
+
+# Function To Convert Time Left Into Structured Time Remaining String
+def getTimeLeftStructured(timeleft, hoursMinsSeconds):
+    if int(hoursMinsSeconds[0]) == 0 and int(hoursMinsSeconds[1]) > 00:
+        return f"**{hoursMinsSeconds[1]}** Minutes **{hoursMinsSeconds[2]}** Seconds"
+    if int(hoursMinsSeconds[0]) == 0 and int(hoursMinsSeconds[1]) == 00:
+        return f"**{hoursMinsSeconds[2]}** Seconds"
+
+# Function To Edit Channel By Ticket Status
+async def editChannelNameByStatus(channel, status, ticketNumber):
+    # Fetch Last Time Channel Was Updated
+    entries = []
+    collection = mongo["entries"]
+    results = collection.find({"channel_id": f"{channel.id}"})
+    for t in results:
+        entries.append(t)
+
+    async def editChannel():
+        converted = convertToFont(f"{ticketNumber}")
+        await channel.edit(name=f"{status}-{converted}")
+        collection = mongo["entries"]
+        collection.insert_one({"channel_id": f"{channel.id}", "time_edited": datetime.datetime.now()})
+
+    if len(entries) < 2:
+        await editChannel()
+        return None
+
+    lastEdited = entries[0]["time_edited"]
+    editedBeforeLast = entries[1]["time_edited"]
+    timePast = datetime.datetime.now() - lastEdited
+    timePastBeforeLastEdited = datetime.datetime.now() - editedBeforeLast
+
+    # If Channel Has Not Been Edited In 10 Minutes Or If its been 10 Minutes Since 2nd Channel Edit
+    if timePast.total_seconds() >= 600 or len(entries) == 2 and timePastBeforeLastEdited.total_seconds() >= 600:
+        await editChannel()
+        return None
+
+    # If Channel Has Been Edited 2 Times In 10 Minutes
+    if len(entries) == 2 and timePast.total_seconds() < 600:
+        secondsLeft = 600 - timePast.total_seconds()
+        hoursMinsSeconds = str(timedelta(seconds=int(secondsLeft))).split(':')
+        timeleftStructured = getTimeLeftStructured(timePast, hoursMinsSeconds)
+        return timeleftStructured
+
+# Epic Font Shit
+def convertToFont(ticketNumber):
+    finalTicketNumber = ""
+    fonts = {"1": "𝟏", "2": "𝟐", "3": "𝟑", "4": "𝟒", "5": "𝟓", "6": "𝟔", "7": "𝟕", "8": "𝟖", "9": "𝟗","0": "𝟎"}
+    for number in ticketNumber:
+        finalTicketNumber = finalTicketNumber + fonts[f"{number}"]
+    return finalTicketNumber
 
 class ticket(commands.Cog):
     def __init__(self, bot):
@@ -25,27 +78,25 @@ class ticket(commands.Cog):
             return
 
         # If Button Click Is From A Ticket That Is Not In Database
-        Q = "SELECT * FROM tickets WHERE id = %s"
-        data = (interaction.custom_id.split(buttonType)[1],)
-        cursor.execute(Q,data)
-        results = cursor.fetchall()
-        if results == []:
+        amount = []
+        collection = mongo["tickets"]
+        results = collection.find({"_id": ObjectId(f"{interaction.custom_id.split(buttonType)[1]}")})
+        for t in results:
+            amount.append(t)
+        if len(amount) == 0:
             return
+
         # If User Closes Ticket
         if interaction.custom_id.startswith("closeticket"):
             await interaction.respond(type=6)
-            db.reconnect(attempts=5)
-            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number FROM tickets WHERE id = %s"
-            data = (interaction.custom_id.split('closeticket')[1], )
-            cursor.execute(Q1, data)
-            results = cursor.fetchall()
+            results = collection.find_one({"_id": ObjectId(f"{interaction.custom_id.split('closeticket')[1]}")})
             # If Ticket Is Still Active Close Ticket
-            if results[0][0] == "ACTIVE":
-                ticketOwner = self.bot.get_user(int(results[0][1]))
-                ticketChannel = self.bot.get_channel(int(results[0][2]))
+            if results["ticket_status"] == "ACTIVE":
+                ticketOwner = self.bot.get_user(int(results["ticket_owner"]))
+                ticketChannel = self.bot.get_channel(int(results["channel_id"]))
                 ticketclosedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Closed By {interaction.author.mention}')
                 await ticketChannel.set_permissions(ticketOwner, read_messages=False, send_messages=False)
-                ratelimit = await editChannelNameByStatus(ticketChannel,'closed',results[0][3])
+                ratelimit = await editChannelNameByStatus(ticketChannel,'𝐂𝐥𝐨𝐬𝐞𝐝',results["department_ticket_number"])
                 if ratelimit == None:
                     await ticketChannel.send(embed=ticketclosedEmbed)
                 else:
@@ -57,33 +108,30 @@ class ticket(commands.Cog):
                 supportPanel = await ticketChannel.send(embed=supportTeamControlsEmbed, components=[buttons])
 
                 # If Ticket Owner Does Not Close Ticket DM Ticket Owner
-                if int(interaction.author.id) != int(results[0][1]):
+                if int(interaction.author.id) != int(results["ticket_owner"]):
                     ticketClosedEmbed = discord.Embed(colour=0x388E3C, title='Ticket Closed',description=f'Your ticket in {interaction.guild.name} has been closed by {interaction.author.mention}',timestamp=datetime.datetime.utcnow())
                     await ticketOwner.send(embed=ticketClosedEmbed)
 
                 # Set Ticket As Closed In Database & Set Support Panel Message ID
-                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = %s"
-                data = ("CLOSED",supportPanel.id , interaction.custom_id.split('closeticket')[1], )
-                cursor.execute(Q2, data)
-                db.commit()
+                collection = mongo["tickets"]
+                collection.update_one({"_id": ObjectId(f"{interaction.custom_id.split('closeticket')[1]}")}, {"$set": {"ticket_status": "CLOSED", "support_panel_message_id":f"{supportPanel.id}"}})
+
         # If User Opens Back Up Ticket
         if interaction.custom_id.startswith("openticket"):
             await interaction.respond(type=6)
-            db.reconnect(attempts=5)
-            Q1 = f"SELECT ticket_status,ticket_owner,channel_id,department_ticket_number,support_panel_message_id FROM tickets WHERE id = %s"
-            data = (interaction.custom_id.split('openticket')[1], )
-            cursor.execute(Q1,data)
-            results = cursor.fetchall()
+            collection = mongo["tickets"]
+            results = collection.find_one({"_id": ObjectId(f"{interaction.custom_id.split('openticket')[1]}")})
+
 
             # If Ticket Is Closed Re Open Ticket
-            if results[0][0] == "CLOSED":
-                ticketOwner = self.bot.get_user(int(results[0][1]))
-                ticketChannel = self.bot.get_channel(int(results[0][2]))
-                supportPanel = await ticketChannel.fetch_message(int(results[0][4]))
+            if results["ticket_status"] == "CLOSED":
+                ticketOwner = self.bot.get_user(int(results["ticket_owner"]))
+                ticketChannel = self.bot.get_channel(int(results["channel_id"]))
+                supportPanel = await ticketChannel.fetch_message(int(results["support_panel_message_id"]))
                 await supportPanel.delete()
                 ticketReopenedEmbed = discord.Embed(colour=0xFBFE32,description=f'Ticket Reopened By {interaction.author.mention}')
                 await ticketChannel.set_permissions(ticketOwner, read_messages=True, send_messages=True)
-                ratelimit = await editChannelNameByStatus(ticketChannel, 'ticket', results[0][3])
+                ratelimit = await editChannelNameByStatus(ticketChannel, '𝐓𝐢𝐜𝐤𝐞𝐭', results["department_ticket_number"])
                 if ratelimit == None:
                     await ticketChannel.send(embed=ticketReopenedEmbed)
                 else:
@@ -94,37 +142,27 @@ class ticket(commands.Cog):
                 await ticketOwner.send(embed=ticketReopenedEmbed)
 
                 # Set Ticket As ACTIVE In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = {interaction.custom_id.split('openticket')[1]}"
-                data = ("ACTIVE","NULL")
-                cursor.execute(Q2, data)
-                db.commit()
+                collection.update_one({"_id": ObjectId(f"{interaction.custom_id.split('openticket')[1]}")}, {"$set": {"ticket_status": f"ACTIVE", "support_panel_message_id": "NULL"}})
+
         # If User Deletes Ticket
         if interaction.custom_id.startswith("deleteticket"):
             await interaction.respond(type=6)
-            db.reconnect(attempts=5)
-            Q1 = f"SELECT ticket_status,channel_id  FROM tickets WHERE id = %s"
-            data = (interaction.custom_id.split('deleteticket')[1], )
-            cursor.execute(Q1, data)
-            results = cursor.fetchall()
+            results = collection.find_one({"_id": ObjectId(f"{interaction.custom_id.split('deleteticket')[1]}")})
 
             # If Ticket Is Closed Delete Ticket
-            if results[0][0] == "CLOSED":
-                ticketChannel = self.bot.get_channel(int(results[0][1]))
-                deleteingTicketEmbed = discord.Embed(colour=0xEF5250, description='<a:emojistorage1loading:824542310028017685> Ticket Will Be Deleted Momentarily <a:emojistorage1loading:824542310028017685>')
+            if results["ticket_status"] == "CLOSED":
+                ticketChannel = self.bot.get_channel(int(results["channel_id"]))
+                deleteingTicketEmbed = discord.Embed(colour=0xEF5250,description=' <a:loading:1031771879561768980> Ticket Will Be Deleted Momentarily  <a:loading:1031771879561768980> ')
                 await ticketChannel.send(embed=deleteingTicketEmbed)
                 await ticketChannel.delete()
 
                 # Set Ticket As DELETED In Database
-                Q2 = f"UPDATE tickets SET ticket_status = %s, support_panel_message_id = %s WHERE id = {interaction.custom_id.split('deleteticket')[1]}"
-                data = ("DELETED","NULL",)
-                cursor.execute(Q2, data)
-                db.commit()
+                collection = mongo['tickets']
+                collection.update_one({"_id": ObjectId(f"{interaction.custom_id.split('deleteticket')[1]}")},{"$set": {"ticket_status": f"DELETED", "support_panel_message_id": "NULL"}})
 
                 # Delete All Channel Edit Logs In Database
-                Q3 = 'DELETE FROM entries WHERE channel_id = %s'
-                data = (int(results[0][1]), )
-                cursor.execute(Q3, data)
-                db.commit()
+                collection = mongo['entries']
+                collection.delete_many({"channel_id":f"{results['channel_id']}"})
 
         # If User Requests Transcript Of Ticket
         if interaction.custom_id.startswith("transcript"):
@@ -147,58 +185,49 @@ class ticket(commands.Cog):
             return
 
         # If Select Reaction Is From A Panel Deleted In The Database
-        Q = "SELECT * FROM ticket_panels WHERE panel_id = %s"
-        data = (selectID.split('panel')[1], )
-        cursor.execute(Q, data)
-        panels = cursor.fetchall()
-        if panels == []:
+        collection = mongo['ticket_panels']
+        result = collection.find_one({"_id": ObjectId(f"{selectID.split('panel')[1]}")})
+        if result == None:
             return
 
         # Fetch Selected Departments Ticket Category ID From Database
-        Q1 = "SELECT department_category_id, department_role_id, id FROM panel_departments WHERE panel_id = %s AND department_name = %s"
-        data = (selectID.split('panel')[1], selectOption)
-        cursor.execute(Q1, data)
-        results = cursor.fetchall()
-        categoryID = int(results[0][0])
-        roleID = int(results[0][1])
-        category = discord.utils.get(res.guild.categories, id=categoryID) # Fetch Category By ID
-        role = discord.utils.get(res.guild.roles, id=roleID) # Fetch Role By ID
+        collection = mongo['panel_departments']
+        result = collection.find_one({"panel_id":f"{selectID.split('panel')[1]}", "department_name":f"{selectOption}"})
+        category = discord.utils.get(res.guild.categories, id=int(result['department_category_id'])) # Fetch Category By ID
+        role = discord.utils.get(res.guild.roles, id=int(result["department_role_id"])) # Fetch Role By ID
+
+        # Fetch Users Open Tickets
+        tickets = []
+        collection = mongo["tickets"]
+        results = collection.find({"department_name": result['department_name'], "ticket_owner": f"{res.author.id}", "ticket_status": "ACTIVE"})
+        for t in results:
+            tickets.append(t)
+
 
         # If User Has More Than One Ticket Open On The Same Department
-        Q2 = f"SELECT * from tickets WHERE department_id = {results[0][2]} AND ticket_owner = {res.author.id} AND ticket_status = 'ACTIVE'"
-        cursor.execute(Q2)
-        tickets = cursor.fetchall()
         if len(tickets) >= 1:
             await res.send(content="**Ticket Limit Reached**, You already have 1 ticket opened for the selected department")
             return
 
+        # Get Real Ticket Count For Department
+        realtickets = []
+        collection = mongo["tickets"]
+        results = collection.find({"department_name": result['department_name']})
+        for t in results:
+            realtickets.append(t)
+
         # Make Interaction Response
-        await res.send(content=" <a:emojistorage1loading:824542310028017685> Creating Ticket <a:emojistorage1loading:824542310028017685>")
+        await res.send(content=" <a:loading:1031771879561768980> Creating Ticket <a:loading:1031771879561768980>")
 
         # Add Ticket To Database
-        Q4 = "INSERT INTO tickets (panel_id, department_id, department_ticket_number, ticket_owner, ticket_status, guild_id) VALUES (%s,%s,%s,%s,%s,%s)"
-        data = (selectID.split('panel')[1], results[0][2],len(tickets) , res.author.id, "ACTIVE", res.guild.id)
-        cursor.execute(Q4, data)
-        db.commit()
-        ticketID = cursor.lastrowid
-
-        # Get Correct Ticket Number Based On Amount Of Tickets For Selected Department
-        Q3 = f"SELECT id FROM tickets WHERE department_id = {results[0][2]}"
-        cursor.execute(Q3)
-        tickets = cursor.fetchall()
-        if len(tickets) == 0:
-            tickets.append(1)
-
-        # Set Correct Ticket Number
-        Q5 = "UPDATE tickets SET department_ticket_number = %s WHERE id = %s"
-        data = (len(tickets), cursor.lastrowid)
-        cursor.execute(Q5, data)
-        db.commit()
+        collection = mongo['tickets']
+        _id = collection.insert_one({"panel_id": selectID.split('panel')[1], "department_name":result['department_name'] ,"department_id": result['department_category_id'], "department_ticket_number": len(realtickets)+23,"ticket_owner": f"{res.author.id}", "ticket_status": "ACTIVE", "guild_id": f"{res.guild.id}"})
+        ticketID = _id.inserted_id
 
         # Create Ticket In Selected Department Category
         ticketOwner = res.author
         overwrites = {res.guild.default_role: discord.PermissionOverwrite(read_messages=False), ticketOwner: discord.PermissionOverwrite(read_messages=True), role: discord.PermissionOverwrite(read_messages=True)}
-        ticketChannel = await res.guild.create_text_channel(f'Ticket #{len(tickets)}', category=category, overwrites=overwrites)
+        ticketChannel = await res.guild.create_text_channel(f'𝐓𝐢𝐜𝐤𝐞𝐭 #{convertToFont(f"{len(realtickets)+23}")}', category=category, overwrites=overwrites)
         welcomeTicketEmbed = discord.Embed(colour=0x388E3C, description=f'Thanks for creating a ticket {res.author.mention} A staff member will be with you shortly! \n To Close This Ticket React With 🔒', timestamp=datetime.datetime.utcnow())
         welcomeTicketEmbed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         button = [Button(style=ButtonStyle.grey, emoji="🔒",label='Close', custom_id=f"closeticket{ticketID}")]
@@ -211,61 +240,18 @@ class ticket(commands.Cog):
                 await message.delete()
 
         # Make Final Interaction Message
-        await res.edit_origin(content=f'Ticket Created <#{ticketChannel.id}>')
+        #await res.edit_origin(content=f'Ticket Created <#{ticketChannel.id}>')
 
         # Add Channel ID To Ticket Database
-        Q6 = f"UPDATE tickets SET channel_id = {ticketChannel.id} WHERE id = {ticketID}"
-        cursor.execute(Q6)
-        db.commit()
-
-    # Command To Delete Active Ticket Panels
-    @commands.command()
-    async def deletepanel(self, ctx):
-        db.reconnect(attempts=5)
-        Q1 = f"SELECT * FROM ticket_panels WHERE guild_id = {ctx.guild.id}"
-        cursor.execute(Q1)
-        panels = cursor.fetchall()
-
-        # If No Active Panels In Guild
-        if panels == []:
-            await ctx.message.delete()
-            noActivePanelEmbed = discord.Embed(colour=0xCD5C5C, description='❌ No **Active** Panels To **Delete**')
-            await ctx.send(embed=noActivePanelEmbed, delete_after=10)
-            return
-
-        # For Every Panel Make A Selection Menu
-        selectOptions = []
-        for panel in list(panels):
-            selectOptions.append(SelectOption(label=str(panel[1], 'utf-8'), value=panel[0]))
-
-        deletePanelEmbed = discord.Embed(colour=0x388E3C,description='#️⃣ Please Select A **Panel** To __**Delete**__')
-        components = Select(placeholder="Please Select An Active Panel To Delete", options=selectOptions)
-        orignalMessage = await ctx.send(embed=deletePanelEmbed, components=[components])
-
-        # Wait For Interaction Response
-        interaction = await self.bot.wait_for("select_option", timeout=30)
-        await interaction.respond(type=6)
-
-        # Delete Panel Message And Panel From Database
-        Q2 = f"SELECT message_id,channel_id FROM ticket_panels WHERE panel_id = {interaction.values[0]}"
-        cursor.execute(Q2)
-        results = cursor.fetchall()
-        ticketChannel = self.bot.get_channel(int(results[0][1]))
-        panelMessage = await ticketChannel.fetch_message(int(results[0][0]))
-        await panelMessage.delete()
-        Q3 = f"DELETE FROM ticket_panels WHERE panel_id = {interaction.values[0]}"
-        cursor.execute(Q3)
-        db.commit()
-        Q4 = f"DELETE FROM panel_departments WHERE panel_id = {interaction.values[0]}"
-        cursor.execute(Q4)
-        db.commit()
-        deletedPanelEmbed = discord.Embed(colour=0x388E3C, description="<a:verifiedcheck:870959062240591923> Panel Deleted <a:verifiedcheck:870959062240591923>")
-        await orignalMessage.edit(embed=deletedPanelEmbed, components=[], delete_after=10)
-        await ctx.message.delete()
+        collection = mongo["tickets"]
+        collection.update_one({"_id": ObjectId(f"{ticketID}")}, {"$set": {"channel_id": f"{ticketChannel.id}"}})
 
     # Command To Create Ticket Panels With A Selection Menu
     @commands.command()
     async def panel(self, ctx):
+        if not ctx.author.id == 750891444444725318:
+            return
+
         # Get Name Of Panel
         getPanelNameEmbed = discord.Embed(colour=0x388E3C,description='Please Enter The **Panel** __**Name**__')
         await ctx.send(embed=getPanelNameEmbed)
@@ -313,8 +299,8 @@ class ticket(commands.Cog):
         panelChannel = self.bot.get_channel(int(panelChannelID))
 
         # Checks If User Would Like To Add A Panel Image
-        checkMarkEmoji = self.bot.get_emoji(805593664591626282)
-        denyMarkEmoji = self.bot.get_emoji(805593723366932501)
+        checkMarkEmoji = self.bot.get_emoji(1031718789374541975)
+        denyMarkEmoji = self.bot.get_emoji(1031718790456684574)
         panelImageEmbed = discord.Embed(colour=0x388E3C,description='❓ Would You Like To **Add** A **Panel Image?**')
         buttons = [Button(style=ButtonStyle.grey, emoji=checkMarkEmoji, custom_id="checkyes"),Button(style=ButtonStyle.grey, emoji=denyMarkEmoji, custom_id="denyno")]
         await panelChannelMessage.edit(embed=panelImageEmbed, components=[buttons])
@@ -335,7 +321,7 @@ class ticket(commands.Cog):
                 invalidImageEmbed = discord.Embed(title="**Invalid** File Type!", colour=0xFFD679)
                 await ctx.send(embed=invalidImageEmbed)
                 return
-            panelImageURL = shorten(msg.attachments[0].url)
+            panelImageURL = msg.attachments[0].url
         if interaction.custom_id == "denyno":
             panelImageURL = "NULL"
 
@@ -355,7 +341,7 @@ class ticket(commands.Cog):
             departmentDescription = msg.content
 
             # Get Department Emoji
-            departmentemojiEmbed = discord.Embed(colour=0x388E3C,description="Please Enter A **Emoji For Your Ticket **Department**")
+            departmentemojiEmbed = discord.Embed(colour=0x388E3C,description="Please Enter A **Emoji For Your Ticket **Department")
             await ctx.send(embed=departmentemojiEmbed)
             msg = await self.bot.wait_for('message', timeout=60, check=lambda message: message.author == ctx.author)
             departmentEmoji = msg.content
@@ -399,10 +385,9 @@ class ticket(commands.Cog):
             await interaction.respond(type=6)
             departmentCategoryID = interaction.values[0]
 
-            # Create A Select Option For Select Table And Create Database Query
+            # Create A Select Option For Select Table And Add To MongoDB
             selectOptions.append(SelectOption(label=departmentName, description=departmentDescription, emoji=departmentEmoji,value=departmentName,))
-            data = (departmentName, departmentDescription, departmentEmoji, departmentRoleID, departmentCategoryID)
-            queries.append(["INSERT INTO panel_departments (panel_id, department_name, department_description, department_emoji, department_role_id, department_category_id) VALUES (%s,%s,%s,%s,%s,%s)", data])
+            queries.append({"department_name":departmentName, "department_description":departmentDescription, "department_emoji":departmentEmoji, "department_role_id":departmentRoleID, "department_category_id":departmentCategoryID})
 
             # Checks If User Would Like To Add Another Department
             departmentEmbed = discord.Embed(colour=0x388E3C,description='❓ Would You Like To **Add** Another **Department?**')
@@ -434,32 +419,29 @@ class ticket(commands.Cog):
             deletedPanelEmbed = discord.Embed(colour=0x00F0C5,title='<a:verifiedcheck:870959062240591923> **Disgarded** Panel! <a:verifiedcheck:870959062240591923>')
             await createPanelMessage.edit(embed=deletedPanelEmbed, components=[])
             return
+
         if interaction.custom_id == "checkyes":
             # Insert Panel Into Database
-            Q1 = f"INSERT INTO ticket_panels (panel_name, panel_description, panel_color, panel_image, guild_id, channel_id) VALUES (%s,%s,%s,%s,%s,%s)"
-            data = (panelName, panelDescription, panelColorCode, panelImageURL, ctx.guild.id, panelChannelID)
-            cursor.execute(Q1, data)
-            db.commit()
+            collection = mongo['ticket_panels']
+            _id = collection.insert_one({"panel_name": panelName, "panel_description": panelDescription,"panel_color": panelColorCode, "panel_image": panelImageURL,"guild_id": f"{ctx.guild.id}", "channel_id":panelChannelID})
+            magicNumber = _id.inserted_id
 
             # Send Out Ticket Panel
             finalPanelEmbed = discord.Embed(colour=0x2F3136, title=panelName,description=f'{panelDescription}')
-            components = Select(placeholder="Please Select A Ticket Department!", options=selectOptions, custom_id=f'panel{cursor.lastrowid}')
-            panel = await panelChannel.send(embed=finalPanelEmbed, components=[components])
-            panelID = cursor.lastrowid
+            components = Select(placeholder="Click Me To Select A Ticket Department!", options=selectOptions, custom_id=f'panel{magicNumber}')
+            if not panelImageURL == "NULL":
+                finalPanelEmbed.set_image(url=panelImageURL)
+            panel = await panelChannel.send(embed=finalPanelEmbed, components=[components], file=discord.File('Rainbow_Line.gif'))
+            await panelChannel.send(file=discord.File('Rainbow_Line.gif'))
 
             # Add Message ID To Panel Database
-            Q2 = f"UPDATE ticket_panels SET message_id = {panel.id} WHERE panel_id = {panelID}"
-            cursor.execute(Q2)
-            db.commit()
+            collection.update_one({"_id": magicNumber}, {"$set": {"message_id": f"{panel.id}"}})
 
             # Add All Selection Options To Database
+            collection = mongo['panel_departments']
             for query in queries:
-                data = list(query[1])
-                data.insert(0, panelID)
-                data = tuple(data)
-                db.reconnect(attempts=5)
-                cursor.execute(query[0], data)
-                db.commit()
+                query["panel_id"] = f"{magicNumber}" # Dont Forget The Secret Sauce
+                collection.insert_one(query)
 
 def setup(bot):
     bot.add_cog(ticket(bot))
